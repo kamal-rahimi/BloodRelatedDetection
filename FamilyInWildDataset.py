@@ -1,3 +1,7 @@
+""" This file defines FamilyInWildDataset class to read images from
+Family In Wild (FIW) image dataset
+"""
+
 import numpy as np
 import os
 import cv2
@@ -22,11 +26,10 @@ class FamilyInWildDataset():
     def read(self, test_size=0.2, valid_size=0.1, gray=True, image_height=224, image_width=224, image_n_channels=1 ):
         images, labels = self.read_fiw_data()
         images = np.array(images)
+        images = [resize_with_pad(image, image_height, image_width) for image in images]
         if gray==True:
             images = [convert_to_gray(image) for image in images]
-            images = np.array(images)
-            images = images.reshape(-1, image_height, image_width, 1)
-        images = [resize_with_pad(image, image_height, image_height) for image in images]
+            images = [image.reshape(image_height, image_width, 1) for image in images]
         images = np.array(images)
         X_train, X_test, y_train, y_test = train_test_split(images, labels, test_size=test_size, random_state=42)
         X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=valid_size, random_state=42)
