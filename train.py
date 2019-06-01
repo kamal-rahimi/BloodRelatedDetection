@@ -34,6 +34,7 @@ RELATION_PREDICTION_MODEL_PATH = "./model/relation_model"
 FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
 
+
 def prepare_relation_data():
     """ Prepares training and test data for emotion detection model from Family in Wild (FIW)
     image dataset 
@@ -46,17 +47,13 @@ def prepare_relation_data():
     """
     dataset = FamilyInWildDataset()
     dataset.read(image_height=image_height, image_width=image_width)
-
+    
     X_train = np.array(dataset.X_train).astype('float32')
     X_test  = np.array(dataset.X_test).astype('float32')
     X_train = X_train / 128 - 1
     X_test  = X_test  / 128 - 1
 
-
-    y_emotion_train = np.array(dataset.y_train)
-    y_emotion_test  = np.array(dataset.y_test)
-
-    return X_train, X_test, y_emotion_train, y_emotion_test
+    return X_train, X_test
 
 def create_relation_encoder_model(X_train, X_test):
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
@@ -95,6 +92,25 @@ def create_relation_encoder_model(X_train, X_test):
 
     return autoencoder
 
+def prepare_classification_data():
+    """ Prepares training and test data for emotion detection model from Family in Wild (FIW)
+    image dataset 
+    Args:
+    Returns:
+        X_train: a numpy array of the train face image data
+        X_test: a numpy array of the test face image data
+        y_emotion_train: a numpy array of the train emotion lables
+        y_emotion_test: a numpy array of the test emotion lables
+    """
+    dataset = FamilyInWildDataset()
+    dataset.read(image_height=image_height, image_width=image_width)
+    
+    X = np.array(dataset.X).astype('float32')
+    y = np.array(dataset.y).astype('float32')
+    X = X / 128 - 1
+    y = y / 128 - 1
+
+    return X, y
 
 def train_relation_model(autoencoder, X_train, X_test):
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
@@ -114,12 +130,12 @@ def train_relation_model(autoencoder, X_train, X_test):
 def main():
 
     if os.path.isfile(FIW_DATA_FILE_PATH):
-        X_train, X_test, y_train, y_test = pickle.load(open(FIW_DATA_FILE_PATH, 'rb'))
+        X_train, X_test = pickle.load(open(FIW_DATA_FILE_PATH, 'rb'))
     else:
-        X_train, X_test, y_train, y_test = prepare_relation_data()
+        X_train, X_test = prepare_relation_data()
         #X_train, y_train = over_sample(X_train, y_train)
         #X_test, y_test = over_sample(X_test, y_test)
-        pickle.dump([X_train, X_test, y_train, y_test], open(FIW_DATA_FILE_PATH, 'wb'))
+        pickle.dump([X_train, X_test], open(FIW_DATA_FILE_PATH, 'wb'))
     
     print("Train size: {}".format(len(X_train)))
     print("Test size: {}" .format(len(X_test)))

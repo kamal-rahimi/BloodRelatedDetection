@@ -16,12 +16,14 @@ FIW_INFO_PATH  = "data/recognizing-faces-in-the-wild/train_relationships.csv"
 
 class FamilyInWildDataset():
     def __init__(self):
+        self.X       = None
+        self.y       = None
         self.X_train = None
         self.X_valid = None
-        self.X_test = None
+        self.X_test  = None
         self.y_train = None
         self.y_valid = None
-        self.y_test = None
+        self.y_test  = None
     
     def read(self, test_size=0.2, valid_size=0.1, gray=True, image_height=224, image_width=224, image_n_channels=1 ):
         images, labels = self.read_fiw_data()
@@ -34,12 +36,14 @@ class FamilyInWildDataset():
         X_train, X_test, y_train, y_test = train_test_split(images, labels, test_size=test_size, random_state=42)
         X_train, X_valid, y_train, y_valid = train_test_split(X_train, y_train, test_size=valid_size, random_state=42)
 
+        self.X       = images
+        self.y       = labels
         self.X_train = X_train
         self.X_valid = X_valid
-        self.X_test = X_test
+        self.X_test  = X_test
         self.y_train = y_train
         self.y_valid = y_valid
-        self.y_test = y_test
+        self.y_test  = y_test
 
     def read_fiw_data(self):
         images = []
@@ -55,7 +59,7 @@ class FamilyInWildDataset():
 
                     person_image_file_full_path = os.path.abspath(person_image_file_path)
                     image = cv2.imread(person_image_file_full_path)
-                    label = [family, person]
+                    label = [family+'/'+person]
 
                     images.append(image)
                     labels.append(label)
