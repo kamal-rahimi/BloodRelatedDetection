@@ -3,6 +3,7 @@ Family In Wild (FIW) image dataset
 """
 
 import numpy as np
+import pandas as pd
 import os
 import cv2
 
@@ -24,6 +25,7 @@ class FamilyInWildDataset():
         self.y_train = None
         self.y_valid = None
         self.y_test  = None
+        self.relations = None
     
     def read(self, test_size=0.2, valid_size=0.1, gray=True, image_height=224, image_width=224, image_n_channels=1 ):
         images, labels = self.read_fiw_data()
@@ -65,9 +67,12 @@ class FamilyInWildDataset():
                     labels.append(label)
             
         return images, labels
+    
+    def read_relations(self):
+        relations = pd.read_csv(FIW_INFO_PATH)
+        self.relations = relations
 
 def main():
-
     dataset = FamilyInWildDataset()
     dataset.read(gray=False)
     print(dataset.X_train.shape)

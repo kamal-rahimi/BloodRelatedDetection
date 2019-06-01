@@ -19,6 +19,8 @@ import pickle
 import os
 import cv2
 
+import pandas as pd
+
 import matplotlib.pyplot as plt
 
 
@@ -35,25 +37,23 @@ FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
 
 
-def prepare_relation_data():
+def prepare_relation_eocoder_data(dataset):
     """ Prepares training and test data for emotion detection model from Family in Wild (FIW)
     image dataset 
     Args:
+        dataset: an object of the FamilyInWildDataset class
     Returns:
         X_train: a numpy array of the train face image data
         X_test: a numpy array of the test face image data
         y_emotion_train: a numpy array of the train emotion lables
         y_emotion_test: a numpy array of the test emotion lables
-    """
-    dataset = FamilyInWildDataset()
-    dataset.read(image_height=image_height, image_width=image_width)
-    
-    X_train = np.array(dataset.X_train).astype('float32')
-    X_test  = np.array(dataset.X_test).astype('float32')
-    X_train = X_train / 128 - 1
-    X_test  = X_test  / 128 - 1
+    """    
+    X_train_encoder = np.array(dataset.X_train).astype('float32')
+    X_test_encoder  = np.array(dataset.X_test).astype('float32')
+    X_train_encoder = X_train_encoder / 128 - 1
+    X_test_encoder  = X_test_encoder  / 128 - 1
 
-    return X_train, X_test
+    return X_train_encoder, X_test_encoder
 
 def create_relation_encoder_model(X_train, X_test):
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
@@ -92,23 +92,24 @@ def create_relation_encoder_model(X_train, X_test):
 
     return autoencoder
 
-def prepare_classification_data():
+def prepare_relation_detection_data(dataset):
     """ Prepares training and test data for emotion detection model from Family in Wild (FIW)
     image dataset 
     Args:
+        dataset: an object of the FamilyInWildDataset class
     Returns:
         X_train: a numpy array of the train face image data
         X_test: a numpy array of the test face image data
         y_emotion_train: a numpy array of the train emotion lables
         y_emotion_test: a numpy array of the test emotion lables
     """
-    dataset = FamilyInWildDataset()
-    dataset.read(image_height=image_height, image_width=image_width)
     
     X = np.array(dataset.X).astype('float32')
-    y = np.array(dataset.y).astype('float32')
     X = X / 128 - 1
-    y = y / 128 - 1
+    relations = dataset.relations
+    print(relations.describe())
+    relations.head()
+    y = None
 
     return X, y
 
@@ -130,25 +131,28 @@ def train_relation_model(autoencoder, X_train, X_test):
 def main():
 
     if os.path.isfile(FIW_DATA_FILE_PATH):
-        X_train, X_test = pickle.load(open(FIW_DATA_FILE_PATH, 'rb'))
+        dataset = pickle.load(open(FIW_DATA_FILE_PATH, 'rb'))
     else:
-        X_train, X_test = prepare_relation_data()
-        #X_train, y_train = over_sample(X_train, y_train)
-        #X_test, y_test = over_sample(X_test, y_test)
-        pickle.dump([X_train, X_test], open(FIW_DATA_FILE_PATH, 'wb'))
+        dataset = FamilyInWildDataset()
+        dataset.read(image_height=image_height, image_width=image_width)
+        dataset.read_relations()
+        pickle.dump(dataset, open(FIW_DATA_FILE_PATH, 'wb'))
     
-    print("Train size: {}".format(len(X_train)))
-    print("Test size: {}" .format(len(X_test)))
+    X_train_enocder, X_test_encoder = prepare_relation_eocoder_data(dataset)
+    X_train_detection, y_test_detection = prepare_relation_detection_data(dataset)
+
+    print("Train size: {}".format(len(X_train_enocder)))
+    print("Test size: {}" .format(len(X_test_encoder)))
 
     if os.path.isfile(RELATION_PREDICTION_MODEL_PATH):
         autoencoder = load_model(RELATION_PREDICTION_MODEL_PATH)
     else:
-        autoencoder = create_relation_encoder_model(X_train, X_train)
+        autoencoder = create_relation_encoder_model(X_train_enocder, X_train_enocder)
         autoencoder.save(RELATION_PREDICTION_MODEL_PATH)
     
     encoder = K.function([autoencoder.layers[0].input], [autoencoder.layers[7].output])
 
-    images = X_train[:10]
+    images = X_train_enocder[:10]
     images_rec = autoencoder.predict(images)
     images += 1.0
     images_rec += 1.0
