@@ -37,7 +37,7 @@ FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
 
 
-def prepare_relation_eocoder_data(dataset):
+def prepare_data(X_train, X_test):
     """ Prepares training and test data for emotion detection model from Family in Wild (FIW)
     image dataset 
     Args:
@@ -45,15 +45,13 @@ def prepare_relation_eocoder_data(dataset):
     Returns:
         X_train: a numpy array of the train face image data
         X_test: a numpy array of the test face image data
-        y_emotion_train: a numpy array of the train emotion lables
-        y_emotion_test: a numpy array of the test emotion lables
     """    
-    X_train_encoder = np.array(dataset.X_train).astype('float32')
-    X_test_encoder  = np.array(dataset.X_test).astype('float32')
-    X_train_encoder = X_train_encoder / 128 - 1
-    X_test_encoder  = X_test_encoder  / 128 - 1
+    X_train = np.array(X_train).astype('float32')
+    X_test  = np.array(X_test).astype('float32')
+    X_train = X_train / 128 - 1
+    X_test  = X_test  / 128 - 1
 
-    return X_train_encoder, X_test_encoder
+    return X_train, X_test
 
 def create_relation_encoder_model(X_train, X_test):
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
@@ -92,37 +90,32 @@ def create_relation_encoder_model(X_train, X_test):
 
     return autoencoder
 
-def prepare_relation_detection_data(dataset):
+def prepare_relation_info(relation_dict, y):
     """ Prepares training and test data for emotion detection model from Family in Wild (FIW)
     image dataset 
     Args:
         dataset: an object of the FamilyInWildDataset class
     Returns:
-        X_train: a numpy array of the train face image data
-        X_test: a numpy array of the test face image data
-        y_emotion_train: a numpy array of the train emotion lables
-        y_emotion_test: a numpy array of the test emotion lables
+        X_related_dict: a Python dictionary of image indices related to an index
+        X_not_related_dict: a Python dictionary of image indices not related to an index
     """
-    
-    X = np.array(dataset.X).astype('float32')
-    X = X / 128 - 1
-    y = dataset.y
+    num_indices = len(y)
 
-    relations_df = dataset.relations
-    num_index = relations_df.shape[0]
-    unique_people = list(set(relations_df["p1"]))
-    relation_dict = {}
-    for person in unique_people[0:20]:
-        related_people = relations_df[relations_df["p1"]==person]
-        relation_dict[person] = list(related_people["p2"])
-        
-    for x, y in relation_dict.items():
-        print(x, y)
+    X_related_dict = {}
+    X_not_related_dict = {}
+    for idx1 in range(num_indices):
+        X_related_dict[idx1] = []
+        X_not_related_dict[idx1] = []
+        for idx2 in range(max(0, idx1-100), min(num_indices, idx1+100)):
+            if (y[idx2] == y[idx1]) or ((y[idx1][0] in relation_dict) and (y[idx2][0] in relation_dict[y[idx1][0]]) ):
+                X_related_dict[idx1].append(idx2)
+        for idx2 in range(max(0, idx1-200), min(num_indices, idx1+200)):
+            if (y[idx2] != y[idx1]) and ( (y[idx1][0] not in relation_dict) or (y[idx2][0] not in relation_dict[y[idx1][0]]) ):
+                X_not_related_dict[idx1].append(idx2)
+                if ( len(X_not_related_dict[idx1]) == len(X_related_dict[idx1]) ):
+                    break;
 
-
-
-
-    return X, y
+    return X_related_dict, X_not_related_dict
 
 def train_relation_model(autoencoder, X_train, X_test):
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
@@ -149,21 +142,22 @@ def main():
         dataset.read_relations()
         pickle.dump(dataset, open(FIW_DATA_FILE_PATH, 'wb'))
     
-    X_train_enocder, X_test_encoder = prepare_relation_eocoder_data(dataset)
-    X_train_detection, y_test_detection = prepare_relation_detection_data(dataset)
+    X_train, X_test = prepare_data(dataset.X_train, dataset.X_test)
+    X_train_related_dict, X_train_not_related_dict = prepare_relation_info(dataset.relation_dict, dataset.y_train)
+    X_test_related_dict,  X_test_not_related_dict  = prepare_relation_info(dataset.relation_dict, dataset.y_test)
 
-    print("Train size: {}".format(len(X_train_enocder)))
-    print("Test size: {}" .format(len(X_test_encoder)))
+    print("Train size: {}".format(len(X_train)))
+    print("Test size: {}" .format(len(X_test)))
 
     if os.path.isfile(RELATION_PREDICTION_MODEL_PATH):
         autoencoder = load_model(RELATION_PREDICTION_MODEL_PATH)
     else:
-        autoencoder = create_relation_encoder_model(X_train_enocder, X_train_enocder)
+        autoencoder = create_relation_encoder_model(X_train, X_train)
         autoencoder.save(RELATION_PREDICTION_MODEL_PATH)
     
     encoder = K.function([autoencoder.layers[0].input], [autoencoder.layers[7].output])
 
-    images = X_train_enocder[:10]
+    images = X_train[:10]
     images_rec = autoencoder.predict(images)
     images += 1.0
     images_rec += 1.0
