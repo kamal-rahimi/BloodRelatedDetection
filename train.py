@@ -106,10 +106,21 @@ def prepare_relation_detection_data(dataset):
     
     X = np.array(dataset.X).astype('float32')
     X = X / 128 - 1
-    relations = dataset.relations
-    print(relations.describe())
-    relations.head()
-    y = None
+    y = dataset.y
+
+    relations_df = dataset.relations
+    num_index = relations_df.shape[0]
+    unique_people = list(set(relations_df["p1"]))
+    relation_dict = {}
+    for person in unique_people[0:20]:
+        related_people = relations_df[relations_df["p1"]==person]
+        relation_dict[person] = list(related_people["p2"])
+        
+    for x, y in relation_dict.items():
+        print(x, y)
+
+
+
 
     return X, y
 
@@ -161,6 +172,7 @@ def main():
     images_rec *= 127.0
     images = np.floor(images).astype(np.uint8)
     images_rec = np.floor(images_rec).astype(np.uint8)
+    """
     for count in range(10):
         #plt.imshow(images[count].squeeze())
         #plt.show()
@@ -171,7 +183,7 @@ def main():
         cv2.imshow("image_rec", np.array(images_rec[count]))
         cv2.waitKey(0)
 
-
+    """
     #train_relation_model(autoencoder, X_train, X_test, y_train, y_test)
     
 
