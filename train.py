@@ -1,5 +1,5 @@
 """
-Creates a convolutionaly neural network (CNN) in Keras and trains the network
+Creates a convolutional neural network (CNN) in Keras and trains the network
 to identify if two pictures belong to people who are blood related.
 """
 
@@ -8,7 +8,7 @@ from tensorflow.python import keras
 from keras import Model
 from keras import backend as K
 from keras.models import load_model, save_model
-from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D
+from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D, Activation, Dropout
 
 from cvision_tools import detect_face, crop_face, convert_to_gray, resize_with_pad, over_sample, under_sample
 
@@ -29,9 +29,10 @@ image_width = 64
 image_n_channels = 1
 
 n_epochs = 100
-batch_size = 10
+batch_size = 100
 
-RELATION_PREDICTION_MODEL_PATH = "./model/relation_model"
+IMAGE_ENCODER_MODEL_PATH = "./model/autoencoder_model"
+RELATION_DETECTION_MODEL_PATH = "./model/relation_detection_model"
 
 FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
@@ -49,8 +50,8 @@ def prepare_data(X_train, X_test):
     """    
     X_train = np.array(X_train).astype('float32')
     X_test  = np.array(X_test).astype('float32')
-    X_train = X_train / 128 - 1
-    X_test  = X_test  / 128 - 1
+    X_train = X_train/255# / 128 - 1
+    X_test  = X_test/255#  / 128 - 1
 
     return X_train, X_test
 
@@ -80,16 +81,16 @@ def create_relation_encoder_model(X_train, X_test):
     x = UpSampling2D((2, 2))(x)
     x = Conv2D(8, (3, 3), activation='elu', padding='same')(x)
     x = UpSampling2D((2, 2))(x)
-    decoded = Conv2D(1, (3, 3), activation='tanh', padding='same')(x)
+    decoded = Conv2D(1, (3, 3), activation='sigmoid', padding='same')(x)
     
     autoencoder = Model(input_image, decoded)
-    autoencoder.compile(optimizer='nadam', loss='mse', metrics=[])
+    autoencoder.compile(optimizer='adadelta', loss='binary_crossentropy',  metrics=['accuracy'])
     autoencoder.summary()
-    autoencoder.fit(X_train, X_train, epochs=n_epochs, batch_size=batch_size, shuffle=True)
+    autoencoder.fit(X_train, X_train, epochs=n_epochs, batch_size=batch_size, shuffle=True, verbose=2)
 
     return autoencoder
 
-def prepare_relation_info(relation_dict, y):
+def prepare_relation_detection_data(encoder, X, y, relation_dict):
     """ Prepares training and test data for emotion detection model
     Args:
         relation_dict: a Python dictionary of people related to a person
@@ -114,19 +115,60 @@ def prepare_relation_info(relation_dict, y):
                 if ( len(X_not_related_dict[idx1]) == len(X_related_dict[idx1]) ):
                     break;
 
-    return X_related_dict, X_not_related_dict
+    X_clf = []
+    y_clf = []
+    for idx1 in range(len(X)):
+        image1 = np.expand_dims(X[idx1], axis=0)
+        x1 = encoder([image1])[0]
+        x1 = x1/np.linalg.norm(x1)
+        for idx2 in X_related_dict[idx1]:
+            image2 = np.expand_dims(X[idx2], axis=0)
+            x2 = encoder([ image2 ])[0]
+            x2 = x2/np.linalg.norm(x2)
+            #X_clf.append(np.concatenate([x1.reshape(1,-1)[0], x2.reshape(1,-1)[0]], axis=0))
+            X_clf.append(x1.reshape(1,-1)[0] - x2.reshape(1,-1)[0])
+            y_clf.append(1)
 
-def train_relation_model(autoencoder, X_train, X_test):
+        for idx2 in X_not_related_dict[idx1]:
+            image2 = np.expand_dims(X[idx2], axis=0)
+            x2 = encoder([ image2 ])[0]
+            x2 = x2/np.linalg.norm(x2)
+            #X_clf.append(np.concatenate([x1.reshape(1,-1)[0], x2.reshape(1,-1)[0]], axis=0))
+            X_clf.append(x1.reshape(1,-1)[0] - x2.reshape(1,-1)[0])
+            y_clf.append(0)
+    
+    X_clf = np.array(X_clf)
+    y_clf = np.array(y_clf)
+    
+    print(X_clf.shape, y_clf.shape)
+
+    return X_clf, y_clf
+
+def create_relation_detection_model(X_train, y_train, X_valid, y_valid):
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
      emotion in an input image
     Args:
         X_train: a numpy array of the train image data
         X_test: a numpy array of the test image data
-        y_train: a numpy array of the train emotion lables
-        y_test: a numpy array of the test emotion lables
+
     Returns:
     """
-    pass
+    num_features = X_train.shape[1]
+    input_vector = Input(shape=(num_features,))
+    x = Dense(256, activation='elu') (input_vector)
+    x = Dropout(0.5) (x)
+    x = Activation('elu')(x)
+    x = Dense(100, activation='elu') (x)
+    x = Dropout(0.3) (x)
+    x = Dense(2) (x)
+    output = Activation('softmax')(x)
+
+    detect_model = Model(input_vector, output)
+    detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    detect_model.summary()
+    detect_model.fit(X_train, y_train, epochs=n_epochs, batch_size=batch_size, verbose=2, shuffle=True, validation_data=(X_valid,y_valid))
+
+    return detect_model
 
 
 
@@ -142,22 +184,30 @@ def main():
         pickle.dump(dataset, open(FIW_DATA_FILE_PATH, 'wb'))
     
     X_train, X_test = prepare_data(dataset.X_train, dataset.X_test)
-    X_train_related_dict, X_train_not_related_dict = prepare_relation_info(dataset.relation_dict, dataset.y_train)
-    X_test_related_dict,  X_test_not_related_dict  = prepare_relation_info(dataset.relation_dict, dataset.y_test)
+    y_train, y_test = dataset.y_train, dataset.y_test
 
     print("Train size: {}".format(len(X_train)))
     print("Test size: {}" .format(len(X_test)))
 
-    if os.path.isfile(RELATION_PREDICTION_MODEL_PATH):
-        autoencoder = load_model(RELATION_PREDICTION_MODEL_PATH)
+    if os.path.isfile(IMAGE_ENCODER_MODEL_PATH):
+        autoencoder_model = load_model(IMAGE_ENCODER_MODEL_PATH)
     else:
-        autoencoder = create_relation_encoder_model(X_train, X_train)
-        autoencoder.save(RELATION_PREDICTION_MODEL_PATH)
+        autoencoder_model = create_relation_encoder_model(X_train, X_train)
+        autoencoder_model.save(IMAGE_ENCODER_MODEL_PATH)
     
-    encoder = K.function([autoencoder.layers[0].input], [autoencoder.layers[7].output])
+    encoder = K.function([autoencoder_model.layers[0].input], [autoencoder_model.layers[8].output])
+
+    X_train_clf, y_train_clf = prepare_relation_detection_data(encoder, X_train, y_train, dataset.relation_dict)
+    X_test_clf, y_test_clf  = prepare_relation_detection_data(encoder, X_test, y_test, dataset.relation_dict)
+
+    if os.path.isfile(RELATION_DETECTION_MODEL_PATH):
+        relation_dtection = load_model(RELATION_DETECTION_MODEL_PATH)
+    else:
+        relation_detction = create_relation_detection_model(X_train_clf, y_train_clf, X_test_clf, y_test_clf)
+        relation_detction.save(RELATION_DETECTION_MODEL_PATH)
 
     images = X_train[:10]
-    images_rec = autoencoder.predict(images)
+    images_rec = autoencoder_model.predict(images)
     images += 1.0
     images_rec += 1.0
 
@@ -165,7 +215,7 @@ def main():
     images_rec *= 127.0
     images = np.floor(images).astype(np.uint8)
     images_rec = np.floor(images_rec).astype(np.uint8)
-    """
+    
     for count in range(10):
         #plt.imshow(images[count].squeeze())
         #plt.show()
@@ -176,7 +226,7 @@ def main():
         cv2.imshow("image_rec", np.array(images_rec[count]))
         cv2.waitKey(0)
 
-    """
+    
     #train_relation_model(autoencoder, X_train, X_test, y_train, y_test)
     
 
