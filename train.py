@@ -29,9 +29,10 @@ image_width = 64
 image_n_channels = 1
 
 n_epochs = 100
-batch_size = 100
+batch_size = 10
 
-IMAGE_ENCODER_MODEL_PATH = "./model/autoencoder_model"
+IMAGE_AUTOENCODER_MODEL_PATH = "./model/autoencoder_model"
+IMAGE_ENCODER_MODEL_PATH = "./model/encoder_model"
 RELATION_DETECTION_MODEL_PATH = "./model/relation_detection_model"
 
 FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
@@ -50,8 +51,8 @@ def prepare_data(X_train, X_test):
     """    
     X_train = np.array(X_train).astype('float32')
     X_test  = np.array(X_test).astype('float32')
-    X_train = X_train/255# / 128 - 1
-    X_test  = X_test/255#  / 128 - 1
+    X_train = X_train / 128 - 1
+    X_test  = X_test  / 128 - 1
 
     return X_train, X_test
 
@@ -68,27 +69,28 @@ def create_relation_encoder_model(X_train, X_test):
     x = MaxPooling2D((2,2), padding='same')(x)
     x = Conv2D(16,(3,3), activation='elu', padding='same')(x)
     x = MaxPooling2D((2,2), padding='same')(x)
-    x = Conv2D(16,(3,3), activation='elu', padding='same')(x)
+    x = Conv2D(12,(3,3), activation='elu', padding='same')(x)
     x = MaxPooling2D((2,2), padding='same')(x)
-    x = Conv2D(16,(3,3), activation='elu', padding='same')(x)
+    x = Conv2D(8,(3,3), activation='elu', padding='same')(x)
     encoded = MaxPooling2D((2,2), padding='same')(x)
 
-    x = Conv2D(16, (3, 3), activation='elu', padding='same')(encoded)
+    x = Conv2D(8, (3, 3), activation='elu', padding='same')(encoded)
     x = UpSampling2D((2, 2))(x)
-    x = Conv2D(16, (3, 3), activation='elu', padding='same')(x)
+    x = Conv2D(12, (3, 3), activation='elu', padding='same')(x)
     x = UpSampling2D((2, 2))(x)
     x = Conv2D(16, (3, 3), activation='elu', padding='same')(x)
     x = UpSampling2D((2, 2))(x)
     x = Conv2D(8, (3, 3), activation='elu', padding='same')(x)
     x = UpSampling2D((2, 2))(x)
-    decoded = Conv2D(1, (3, 3), activation='sigmoid', padding='same')(x)
+    decoded = Conv2D(1, (3, 3), activation='tanh', padding='same')(x)
     
     autoencoder = Model(input_image, decoded)
-    autoencoder.compile(optimizer='adadelta', loss='binary_crossentropy',  metrics=['accuracy'])
+    autoencoder.compile(optimizer='nadam', loss='mse',  metrics=['accuracy'])
     autoencoder.summary()
     autoencoder.fit(X_train, X_train, epochs=n_epochs, batch_size=batch_size, shuffle=True, verbose=2)
+    encoder = Model(input_image, encoded)
 
-    return autoencoder
+    return autoencoder, encoder
 
 def prepare_relation_detection_data(encoder, X, y, relation_dict):
     """ Prepares training and test data for emotion detection model
@@ -125,16 +127,16 @@ def prepare_relation_detection_data(encoder, X, y, relation_dict):
             image2 = np.expand_dims(X[idx2], axis=0)
             x2 = encoder([ image2 ])[0]
             x2 = x2/np.linalg.norm(x2)
-            #X_clf.append(np.concatenate([x1.reshape(1,-1)[0], x2.reshape(1,-1)[0]], axis=0))
-            X_clf.append(x1.reshape(1,-1)[0] - x2.reshape(1,-1)[0])
+            X_clf.append(np.concatenate([x1.reshape(1,-1)[0], x2.reshape(1,-1)[0]], axis=0))
+            #X_clf.append(np.linalg.norm(x1.reshape(1,-1)[0] - x2.reshape(1,-1)[0]))
             y_clf.append(1)
 
         for idx2 in X_not_related_dict[idx1]:
             image2 = np.expand_dims(X[idx2], axis=0)
             x2 = encoder([ image2 ])[0]
             x2 = x2/np.linalg.norm(x2)
-            #X_clf.append(np.concatenate([x1.reshape(1,-1)[0], x2.reshape(1,-1)[0]], axis=0))
-            X_clf.append(x1.reshape(1,-1)[0] - x2.reshape(1,-1)[0])
+            X_clf.append(np.concatenate([x1.reshape(1,-1)[0], x2.reshape(1,-1)[0]], axis=0))
+            #X_clf.append(np.linalg.norm(x1.reshape(1,-1)[0] - x2.reshape(1,-1)[0]))
             y_clf.append(0)
     
     X_clf = np.array(X_clf)
@@ -159,7 +161,7 @@ def create_relation_detection_model(X_train, y_train, X_valid, y_valid):
     x = Dropout(0.5) (x)
     x = Activation('elu')(x)
     x = Dense(100, activation='elu') (x)
-    x = Dropout(0.3) (x)
+    x = Dropout(0.0) (x)
     x = Dense(2) (x)
     output = Activation('softmax')(x)
 
@@ -190,10 +192,12 @@ def main():
     print("Test size: {}" .format(len(X_test)))
 
     if os.path.isfile(IMAGE_ENCODER_MODEL_PATH):
-        autoencoder_model = load_model(IMAGE_ENCODER_MODEL_PATH)
+        autoencoder_model = load_model(IMAGE_AUTOENCODER_MODEL_PATH)
+        encoder_model = load_model(IMAGE_ENCODER_MODEL_PATH)
     else:
-        autoencoder_model = create_relation_encoder_model(X_train, X_train)
-        autoencoder_model.save(IMAGE_ENCODER_MODEL_PATH)
+        autoencoder_model, encoder_model = create_relation_encoder_model(X_train, X_train)
+        autoencoder_model.save(IMAGE_AUTOENCODER_MODEL_PATH)
+        encoder_model.save(IMAGE_ENCODER_MODEL_PATH)
     
     encoder = K.function([autoencoder_model.layers[0].input], [autoencoder_model.layers[8].output])
 
