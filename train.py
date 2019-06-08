@@ -28,7 +28,7 @@ image_height = 64
 image_width = 64
 image_n_channels = 1
 
-n_epochs = 100
+n_epochs = 10
 batch_size = 10
 
 IMAGE_AUTOENCODER_MODEL_PATH = "./model/autoencoder_model"
@@ -37,7 +37,8 @@ RELATION_DETECTION_MODEL_PATH = "./model/relation_detection_model"
 
 FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
-
+num_train_samples = 24000
+num_test_samples = 6700
 
 def prepare_data(X_train, X_test):
     """ Prepares training and test data for family relations detection model from Family in Wild (FIW)
@@ -169,9 +170,78 @@ def create_relation_detection_model(X_train, y_train, X_valid, y_valid):
     detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
     detect_model.summary()
     detect_model.fit(X_train, y_train, epochs=n_epochs, batch_size=batch_size, verbose=2, shuffle=True, validation_data=(X_valid,y_valid))
+    #detect_model.fit_generator(generator, validation_data=validation_data, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=2)
 
     return detect_model
 
+def create_relation_dictionaris(X, y, relation_dict,):
+    num_indices = len(y)
+
+    X_related_dict = {}
+    X_not_related_dict = {}
+    
+    for idx1 in range(num_indices):
+        X_related_dict[idx1] = []
+        X_not_related_dict[idx1] = []
+        for idx2 in range(max(0, idx1-100), min(num_indices, idx1+100)):
+            if (y[idx2] == y[idx1]) or ((y[idx1][0] in relation_dict) and (y[idx2][0] in relation_dict[y[idx1][0]]) ):
+                X_related_dict[idx1].append(idx2)
+        for idx2 in range(max(0, idx1-200), min(num_indices, idx1+200)):
+            if (y[idx2] != y[idx1]) and ( (y[idx1][0] not in relation_dict) or (y[idx2][0] not in relation_dict[y[idx1][0]]) ):
+                X_not_related_dict[idx1].append(idx2)
+                if ( len(X_not_related_dict[idx1]) == len(X_related_dict[idx1]) ):
+                    break;
+
+    return X_related_dict, X_not_related_dict
+
+
+def data_generator(X, y, relation_dict, batch_size):
+    
+    X_related_dict, X_not_related_dict = create_relation_dictionaris(X, y, relation_dict)
+
+    while True:
+        X_clf = []
+        y_clf = []
+        for idx1 in range(len(X)):
+            for idx2 in X_related_dict[idx1]:
+                X_clf.append(np.concatenate([X[idx1], X[idx2]], axis=2))
+                y_clf.append(1)
+                if ( len(y_clf) == batch_size ):
+                    yield(np.array(X_clf), np.array(y_clf))
+                    X_clf = []
+                    y_clf = []
+
+            for idx2 in X_not_related_dict[idx1]:
+                X_clf.append(np.concatenate([X[idx1], X[idx2]], axis=2))
+                print(np.array(X_clf).shape)
+                y_clf.append(0)
+                if ( len(y_clf) == batch_size ):
+                    yield(np.array(X_clf), np.array(y_clf))
+                    X_clf = []
+                    y_clf = []
+
+def create_relation_detection_model2(generator, validation_data, num_features):
+    """ Creates a convoluational neural network (CNN) and trains the model to detect facial
+     emotion in an input image
+    Args:
+        X_train: a numpy array of the train image data
+        X_test: a numpy array of the test image data
+
+    Returns:
+    """
+    input_vector = Input(shape=(num_features,))
+    x = Dense(256, activation='elu') (input_vector)
+    x = Dropout(0.5) (x)
+    x = Activation('elu')(x)
+    x = Dense(100, activation='elu') (x)
+    x = Dropout(0.0) (x)
+    x = Dense(2) (x)
+    output = Activation('softmax')(x)
+
+    detect_model = Model(input_vector, output)
+    detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    detect_model.summary()
+    detect_model.fit_generator(generator, validation_data=validation_data, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=2)
 
 
 
@@ -198,18 +268,22 @@ def main():
         autoencoder_model, encoder_model = create_relation_encoder_model(X_train, X_train)
         autoencoder_model.save(IMAGE_AUTOENCODER_MODEL_PATH)
         encoder_model.save(IMAGE_ENCODER_MODEL_PATH)
-    
-    encoder = K.function([autoencoder_model.layers[0].input], [autoencoder_model.layers[8].output])
-
-    X_train_clf, y_train_clf = prepare_relation_detection_data(encoder, X_train, y_train, dataset.relation_dict)
-    X_test_clf, y_test_clf  = prepare_relation_detection_data(encoder, X_test, y_test, dataset.relation_dict)
 
     if os.path.isfile(RELATION_DETECTION_MODEL_PATH):
         relation_dtection = load_model(RELATION_DETECTION_MODEL_PATH)
     else:
+        encoder = K.function([autoencoder_model.layers[0].input], [autoencoder_model.layers[8].output])
+        X_train_clf, y_train_clf = prepare_relation_detection_data(encoder, X_train, y_train, dataset.relation_dict)
+        X_test_clf, y_test_clf  = prepare_relation_detection_data(encoder, X_test, y_test, dataset.relation_dict)
         relation_detction = create_relation_detection_model(X_train_clf, y_train_clf, X_test_clf, y_test_clf)
         relation_detction.save(RELATION_DETECTION_MODEL_PATH)
 
+
+    train_data_generator = data_generator(X_train, y_train, dataset.relation_dict, batch_size)
+    test_data_generator = data_generator(X_test, y_test, dataset.relation_dict, batch_size)
+    relation_detction = create_relation_detection_model2(generator=train_data_generator, validation_data=test_data_generator, num_features=256)
+
+"""
     images = X_train[:10]
     images_rec = autoencoder_model.predict(images)
     images += 1.0
@@ -229,7 +303,7 @@ def main():
         #plt.show()
         cv2.imshow("image_rec", np.array(images_rec[count]))
         cv2.waitKey(0)
-
+"""
     
     #train_relation_model(autoencoder, X_train, X_test, y_train, y_test)
     
