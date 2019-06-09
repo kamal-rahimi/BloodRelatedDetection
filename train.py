@@ -8,7 +8,8 @@ from tensorflow.python import keras
 from keras import Model
 from keras import backend as K
 from keras.models import load_model, save_model
-from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D, Activation, Dropout
+from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D, Activation, BatchNormalization, Dropout, Reshape, Flatten, Concatenate, Add, Subtract, Lambda
+
 
 from cvision_tools import detect_face, crop_face, convert_to_gray, resize_with_pad, over_sample, under_sample
 
@@ -204,7 +205,8 @@ def data_generator(X, y, relation_dict, batch_size):
         y_clf = []
         for idx1 in range(len(X)):
             for idx2 in X_related_dict[idx1]:
-                X_clf.append(np.concatenate([X[idx1], X[idx2]], axis=2))
+                #X_clf.append(np.concatenate([X[idx1], X[idx2]], axis=0))
+                X_clf.append([ X[idx1], X[idx2] ] )
                 y_clf.append(1)
                 if ( len(y_clf) == batch_size ):
                     yield(np.array(X_clf), np.array(y_clf))
@@ -212,15 +214,16 @@ def data_generator(X, y, relation_dict, batch_size):
                     y_clf = []
 
             for idx2 in X_not_related_dict[idx1]:
-                X_clf.append(np.concatenate([X[idx1], X[idx2]], axis=2))
-                print(np.array(X_clf).shape)
+                #X_clf.append(np.concatenate([X[idx1], X[idx2]], axis=0))
+                X_clf.append([ X[idx1], X[idx2] ] )
+                #print(np.array(X_clf).shape)
                 y_clf.append(0)
                 if ( len(y_clf) == batch_size ):
                     yield(np.array(X_clf), np.array(y_clf))
                     X_clf = []
                     y_clf = []
 
-def create_relation_detection_model2(generator, validation_data, num_features):
+def create_relation_detection_model2(generator, validation_data, num_features, encoder):
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
      emotion in an input image
     Args:
@@ -229,20 +232,63 @@ def create_relation_detection_model2(generator, validation_data, num_features):
 
     Returns:
     """
-    input_vector = Input(shape=(num_features,))
-    x = Dense(256, activation='elu') (input_vector)
-    x = Dropout(0.5) (x)
+    input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
+    branches = []
+
+    res1 = Conv2D(16,(4,4), strides=(4, 4), activation='elu', padding='same')
+    conv1 = Conv2D(8,(2,2), activation='elu', padding='same')
+    pool1 = MaxPooling2D((2,2), padding='same')
+    conv2 = Conv2D(16,(2,2), activation='elu', padding='same')
+    pool2 = MaxPooling2D((2,2), padding='same')
+    res2 = Conv2D(64,(4,4), strides=(4, 4), activation='elu', padding='same')
+    conv3 = Conv2D(32,(2,2), activation='elu', padding='same')
+    pool3 = MaxPooling2D((2,2), padding='same')
+    conv4 = Conv2D(64,(2,2), activation='elu', padding='same')
+    pool4 = MaxPooling2D((2,2), padding='same')
+    flatten = Flatten()
+    #bn = BatchNormalization(axis=1)
+    for i in [0,1]:
+        x = Lambda(lambda t: t[:,i])(input_vector)
+        print(x.shape)
+        x = Reshape((image_height, image_width, image_n_channels)) (x)
+        print(x.shape)
+        xr = res1 (x)
+        x = conv1 (x)
+        x = pool1 (x)
+        x = conv2  (x)
+        x = pool2 (x)
+        x = Add()([x, xr])
+        
+        xr = res2 (x)
+        x = conv3 (x)
+        x = pool3 (x)
+        x = conv4 (x)
+        x = pool4 (x)
+        x = Add()([x, xr])
+
+        x = flatten (x)
+        branches.append(x)
+
+    #x = Concatenate() ([branches[0], branches[1]])
+    x = Subtract() ([branches[0], branches[1]]) 
+    x = Dense(256, activation='elu') (x)
+    x = Dropout(0.0) (x)
     x = Activation('elu')(x)
     x = Dense(100, activation='elu') (x)
     x = Dropout(0.0) (x)
     x = Dense(2) (x)
     output = Activation('softmax')(x)
+    #x = Subtract() ([branches[0], branches[1]]) 
+    #x = Lambda(lambda t: K.l2_normalize(t)) (x)
+    #x = Dense(2) (x)
+    #output = Activation('softmax')(x)
 
     detect_model = Model(input_vector, output)
     detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
     detect_model.summary()
     detect_model.fit_generator(generator, validation_data=validation_data, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=2)
 
+    return detect_model
 
 
 def main():
@@ -281,7 +327,7 @@ def main():
 
     train_data_generator = data_generator(X_train, y_train, dataset.relation_dict, batch_size)
     test_data_generator = data_generator(X_test, y_test, dataset.relation_dict, batch_size)
-    relation_detction = create_relation_detection_model2(generator=train_data_generator, validation_data=test_data_generator, num_features=256)
+    relation_detction = create_relation_detection_model2(generator=train_data_generator, validation_data=test_data_generator, num_features=256, encoder=encoder_model)
 
 """
     images = X_train[:10]
