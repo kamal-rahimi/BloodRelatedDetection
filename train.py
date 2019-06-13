@@ -29,7 +29,7 @@ image_height = 64
 image_width = 64
 image_n_channels = 1
 
-n_epochs = 1
+n_epochs = 5
 batch_size = 10
 
 IMAGE_AUTOENCODER_MODEL_PATH = "./model/autoencoder_model"
@@ -196,110 +196,7 @@ def create_relation_dictionaris(X, y, relation_dict,):
     return X_related_dict, X_not_related_dict
 
 
-def data_generator(X, y, relation_dict, batch_size, data_weight, return_index=False):
-    
-    X_related_dict, X_not_related_dict = create_relation_dictionaris(X, y, relation_dict)
-
-    while True:
-        X_clf = []
-        y_clf = []
-        for idx1 in range(len(X)):
-            for idx2 in X_related_dict[idx1]:
-                if ( data_weight[idx1, idx2] < np.random.uniform() ):
-                    continue
-                X_clf.append([ X[idx1], X[idx2] ] )
-                y_clf.append(1)
-                if ( len(y_clf) == batch_size ):
-                    if return_index:
-                        yield(np.array(X_clf), np.array(y_clf), idx1, idx2)
-                    else:
-                        yield(np.array(X_clf), np.array(y_clf))
-                    X_clf = []
-                    y_clf = []
-
-            for idx2 in X_not_related_dict[idx1]:
-                if ( data_weight[idx1, idx2] < np.random.uniform() ):
-                    continue
-                X_clf.append([ X[idx1], X[idx2] ] )
-                y_clf.append(0)
-                if ( len(y_clf) == batch_size ):
-                    if return_index:
-                        yield(np.array(X_clf), np.array(y_clf), idx1, idx2)
-                    else:
-                        yield(np.array(X_clf), np.array(y_clf))
-                    X_clf = []
-                    y_clf = []
-
-def create_relation_detection_model2(generator, validation_data, num_features):
-    """ Creates a convoluational neural network (CNN) and trains the model to detect facial
-     emotion in an input image
-    Args:
-        X_train: a numpy array of the train image data
-        X_test: a numpy array of the test image data
-
-    Returns:
-    """
-    input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
-    branches = []
-
-    res1 = Conv2D(16,(4,4), strides=(4, 4), activation='elu', padding='same')
-    conv1 = Conv2D(8,(2,2), activation='elu', padding='same')
-    pool1 = MaxPooling2D((2,2), padding='same')
-    conv2 = Conv2D(16,(2,2), activation='elu', padding='same')
-    pool2 = MaxPooling2D((2,2), padding='same')
-    res2 = Conv2D(64,(4,4), strides=(4, 4), activation='elu', padding='same')
-    conv3 = Conv2D(32,(2,2), activation='elu', padding='same')
-    pool3 = MaxPooling2D((2,2), padding='same')
-    conv4 = Conv2D(64,(2,2), activation='elu', padding='same')
-    pool4 = MaxPooling2D((2,2), padding='same')
-    flatten = Flatten()
-    #bn = BatchNormalization(axis=1)
-    for i in [0,1]:
-        x = Lambda(lambda t: t[:,i])(input_vector)
-        print(x.shape)
-        x = Reshape((image_height, image_width, image_n_channels)) (x)
-        print(x.shape)
-        xr = res1 (x)
-        x = conv1 (x)
-        x = pool1 (x)
-        x = conv2  (x)
-        x = pool2 (x)
-        x = Add()([x, xr])
-        
-        xr = res2 (x)
-        x = conv3 (x)
-        x = pool3 (x)
-        x = conv4 (x)
-        x = pool4 (x)
-        x = Add()([x, xr])
-
-        x = flatten (x)
-        branches.append(x)
-
-    #x = Concatenate() ([branches[0], branches[1]])
-    x = Subtract() ([branches[0], branches[1]]) 
-    x = Dense(256, activation='elu') (x)
-    x = Dropout(0.5) (x)
-    x = Activation('elu')(x)
-    x = Dense(100, activation='elu') (x)
-    x = Dropout(0.5) (x)
-    x = Dense(2) (x)
-    output = Activation('softmax')(x)
-    #x = Subtract() ([branches[0], branches[1]]) 
-    #x = Lambda(lambda t: K.l2_normalize(t)) (x)
-    #x = Dense(2) (x)
-    #output = Activation('softmax')(x)
-
-    detect_model = Model(input_vector, output)
-    detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-    detect_model.summary()
-    detect_model.fit_generator(generator, validation_data=validation_data, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=2)    
-
-    return detect_model
-
-
 def main():
-
     if os.path.isfile(FIW_DATA_FILE_PATH):
         dataset = pickle.load(open(FIW_DATA_FILE_PATH, 'rb'))
     else:
@@ -331,16 +228,9 @@ def main():
         relation_detction = create_relation_detection_model(X_train_clf, y_train_clf, X_test_clf, y_test_clf)
         relation_detction.save(RELATION_DETECTION_MODEL_PATH)
 
-    data_weights = .5*np.ones((len(X_train), len(X_train)), np.float32)
-    iterate_train_data_genrator = data_generator(X_train, y_train, dataset.relation_dict, 1, data_weights, return_index=True)
-
-    train_data_generator = data_generator(X_train, y_train, dataset.relation_dict, batch_size, data_weights)
-    test_data_generator = data_generator(X_test, y_test, dataset.relation_dict, batch_size, data_weights)
-    relation_detction = create_relation_detection_model2(generator=train_data_generator, validation_data=test_data_generator, num_features=256)
     
- 
 
-"""
+    """
     images = X_train[:10]
     images_rec = autoencoder_model.predict(images)
     images += 1.0
@@ -360,7 +250,7 @@ def main():
         #plt.show()
         cv2.imshow("image_rec", np.array(images_rec[count]))
         cv2.waitKey(0)
-"""
+    """
     
     #train_relation_model(autoencoder, X_train, X_test, y_train, y_test)
     
