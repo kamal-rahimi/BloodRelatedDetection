@@ -29,13 +29,14 @@ image_height = 64
 image_width = 64
 image_n_channels = 1
 
-n_epochs = 10
+n_epochs = 20
 batch_size = 10
 
-num_predictors = 10
+num_predictors = 20
 learning_rate = .4
 
-RELATION_DETECTION_ADABOOST_MODEL_PATH = "./model/relation_detect_adaboost_model"
+RELATION_DETECTION_CNN_MODEL_PATH = "./model/relation_detect_cnn_model"
+RELATION_DETECTION_ADABOOST_MODEL_PATH = "./model/relation_detect_cnn_adaboost_model"
 
 FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
@@ -93,7 +94,7 @@ def data_generator(X, y, relation_dict, batch_size):
     while True:
         X_clf = []
         y_clf = []
-        print("num_batches", num_yeild)
+        #print("num_batches", num_yeild)
         for idx1 in range(len(X)):
             for idx2 in X_related_dict[idx1]:
                 if ( np.random.uniform() < 0.5 ):
@@ -160,18 +161,18 @@ def create_relation_detection_model(num_features):
         x = Add()([x, xr])
 
         x = flatten (x)
-        x = Lambda(lambda t: (K.l2_normalize(t, axis=1)) )(x)
+        x = Lambda(lambda t: (K.l2_normalize(t, axis=1)) )(x) 
         branches.append(x)
 
     #x = Concatenate() ([branches[0], branches[1]])
     x = Subtract() ([branches[0], branches[1]])
-    x = Lambda(lambda t: np.absolute(t) )(x)
+    x = Lambda(lambda t: np.square(t) )(x)
     #x = Lambda(lambda t: (tf.norm(t, axis=1, keepdims=True)) )(x)
-    x = Dense(256, activation='elu') (x)
-    x = Dropout(0.0) (x)
-    x = Activation('elu')(x)
-    x = Dense(100, activation='elu') (x)
-    x = Dropout(0.0) (x)
+    #x = Dense(256, activation='elu') (x)
+    x = Dropout(0.5) (x)
+    #x = Activation('elu')(x)
+    x = Dense(64, activation='elu') (x)
+    x = Dropout(0.5) (x)
     x = Dense(2) (x)
     output = Activation('softmax')(x)
 
@@ -179,7 +180,84 @@ def create_relation_detection_model(num_features):
     detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
     return detect_model
-    
+
+def create_relation_detection_model2(num_features):
+    """ Creates a convoluational neural network (CNN) and trains the model to detect facial
+     emotion in an input image
+    Args:
+        X_train: a numpy array of the train image data
+        X_test: a numpy array of the test image data
+
+    Returns:
+    """
+    input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
+    branches = []
+
+    res1 = Conv2D(8,(8,8), strides=(8, 8), activation='elu', padding='same')
+    conv1 = Conv2D(8,(4,4), activation='elu', padding='same')
+    pool1 = MaxPooling2D((4,4), padding='same')
+    conv2 = Conv2D(8,(2,2), activation='elu', padding='same')
+    pool2 = MaxPooling2D((2,2), padding='same')
+
+    res2 = Conv2D(16,(8,8), strides=(4, 4), activation='elu', padding='same')
+    conv3 = Conv2D(16,(4,4), activation='elu', padding='same')
+    pool3 = MaxPooling2D((4,4), padding='same')
+    conv4 = Conv2D(16,(2,2), activation='elu', padding='same')
+    pool4 = MaxPooling2D((2,2), padding='same')
+
+    res3 = Conv2D(32,(4,4), strides=(2, 2), activation='elu', padding='same')
+    conv5 = Conv2D(32,(2,2), activation='elu', padding='same')
+    pool5 = MaxPooling2D((2,2), padding='same')
+    conv6 = Conv2D(32,(2,2), activation='elu', padding='same')
+    pool6 = MaxPooling2D((1,1), padding='same')
+    flatten = Flatten()
+    #bn = BatchNormalization(axis=1)
+    for i in [0,1]:
+        x = Lambda(lambda t: t[:,i])(input_vector)
+        x = Reshape((image_height, image_width, image_n_channels)) (x)
+        xr = res1 (x)
+        x = conv1 (x)
+        x = pool1 (x)
+        x = conv2 (x)
+        x = pool2 (x)
+        x = Add()([x, xr])
+        
+        xr = res2 (x)
+        x = conv3 (x)
+        x = pool3 (x)
+        x = conv4 (x)
+        x = pool4 (x)
+        x = Add()([x, xr])
+
+        xr = res3 (x)
+        x = conv5 (x)
+        x = pool5 (x)
+        x = conv6 (x)
+        x = pool6 (x)
+        x = Add()([x, xr])
+
+        x = flatten (x)
+        x = Lambda(lambda t: (K.l2_normalize(t, axis=1)) )(x) 
+        branches.append(x)
+
+    #x = Concatenate() ([branches[0], branches[1]])
+    x = Subtract() ([branches[0], branches[1]])
+    x = Lambda(lambda t: np.square(t) )(x)
+    #x = Lambda(lambda t: (tf.norm(t, axis=1, keepdims=True)) )(x)
+    #x = Dense(256, activation='elu') (x)
+    x = Dropout(0.5) (x)
+    #x = Activation('elu')(x)
+    x = Dense(64, activation='elu') (x)
+    x = Dropout(0.5) (x)
+    x = Dense(2) (x)
+    output = Activation('softmax')(x)
+
+    detect_model = Model(input_vector, output)
+    detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+    return detect_model
+
+
 def main():
 
     if os.path.isfile(FIW_DATA_FILE_PATH):
@@ -194,8 +272,8 @@ def main():
     y_train, y_test = dataset.y_train, dataset.y_test
     relation_dict   = dataset.relation_dict
 
-    if os.path.isfile(RELATION_DETECTION_ADABOOST_MODEL_PATH):
-        relation_dtection = load_model(RELATION_DETECTION_ADABOOST_MODEL_PATH)
+    if os.path.isfile(RELATION_DETECTION_CNN_MODEL_PATH):
+        relation_dtection = load_model(RELATION_DETECTION_CNN_MODEL_PATH)
     else:
         num_features = X_train.shape[1]*2
         relation_detction = create_relation_detection_model(num_features)
@@ -203,8 +281,8 @@ def main():
         train_data_generator = data_generator(X_train, y_train, relation_dict, batch_size)
         test_data_generator = data_generator(X_test, y_test, relation_dict, batch_size)
     
-        relation_detction.fit_generator(train_data_generator, validation_data=test_data_generator, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=2)
-        relation_detction.save(RELATION_DETECTION_ADABOOST_MODEL_PATH)
+        relation_detction.fit_generator(train_data_generator, validation_data=test_data_generator, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=1)
+        relation_detction.save(RELATION_DETECTION_CNN_MODEL_PATH)
 
     
 
