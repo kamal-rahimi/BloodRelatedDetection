@@ -10,7 +10,6 @@ from keras import backend as K
 from keras.models import load_model, save_model
 from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D, Activation, BatchNormalization, Dropout, Reshape, Flatten, Concatenate, Add, Subtract, Lambda
 
-
 from cvision_tools import detect_face, crop_face, convert_to_gray, resize_with_pad, over_sample, under_sample
 
 from FamilyInWildDataset import FamilyInWildDataset
@@ -32,8 +31,6 @@ image_n_channels = 1
 n_epochs = 10
 batch_size = 50
 
-num_predictors = 20
-learning_rate = .4
 
 RELATION_DETECTION_CNN_MODEL_PATH = "./model/relation_detect_model"
 
@@ -111,7 +108,16 @@ def create_relation_dictionaris(X, y, relation_dict):
     return X_related_dict, X_not_related_dict
 
 def data_generator(X, y, data_len, relation_dict, batch_size, data_weight, return_index=False):
-    
+    """ Creates a datagenrator to feed two images and label (related or not related) to the Keras model
+    Args:
+        X: input images
+        y: input image lables
+        relation_dict: a python dictionary containing relation information
+        data_weight: weights used to sample imput data
+        return_index: weather return indices of the two image along with data or not
+    Returns:
+         yields with numpy arrays contining two pair of images and lable (related, not related)
+    """
     X_related_dict, X_not_related_dict = create_relation_dictionaris(X, y, relation_dict)
     X_clf = []
     y_clf = []
@@ -149,10 +155,9 @@ def create_relation_detection_model(num_features):
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
      emotion in an input image
     Args:
-        X_train: a numpy array of the train image data
-        X_test: a numpy array of the test image data
-
+        num_features: Number of input data features
     Returns:
+        cnn_model: A Keras convultional neural network
     """
     input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
     branches = []
@@ -202,86 +207,10 @@ def create_relation_detection_model(num_features):
     x = Dense(2) (x)
     output = Activation('softmax')(x)
 
-    detect_model = Model(input_vector, output)
-    detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    cnn_model = Model(input_vector, output)
+    cnn_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
-    return detect_model
-
-def create_relation_detection_model2(num_features):
-    """ Creates a convoluational neural network (CNN) and trains the model to detect facial
-     emotion in an input image
-    Args:
-        X_train: a numpy array of the train image data
-        X_test: a numpy array of the test image data
-
-    Returns:
-    """
-    input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
-    branches = []
-
-    res1 = Conv2D(8,(8,8), strides=(8, 8), activation='elu', padding='same')
-    conv1 = Conv2D(8,(4,4), activation='elu', padding='same')
-    pool1 = MaxPooling2D((4,4), padding='same')
-    conv2 = Conv2D(8,(2,2), activation='elu', padding='same')
-    pool2 = MaxPooling2D((2,2), padding='same')
-
-    res2 = Conv2D(16,(8,8), strides=(4, 4), activation='elu', padding='same')
-    conv3 = Conv2D(16,(4,4), activation='elu', padding='same')
-    pool3 = MaxPooling2D((4,4), padding='same')
-    conv4 = Conv2D(16,(2,2), activation='elu', padding='same')
-    pool4 = MaxPooling2D((2,2), padding='same')
-
-    res3 = Conv2D(32,(4,4), strides=(2, 2), activation='elu', padding='same')
-    conv5 = Conv2D(32,(2,2), activation='elu', padding='same')
-    pool5 = MaxPooling2D((2,2), padding='same')
-    conv6 = Conv2D(32,(2,2), activation='elu', padding='same')
-    pool6 = MaxPooling2D((1,1), padding='same')
-    flatten = Flatten()
-    #bn = BatchNormalization(axis=1)
-    for i in [0,1]:
-        x = Lambda(lambda t: t[:,i])(input_vector)
-        x = Reshape((image_height, image_width, image_n_channels)) (x)
-        xr = res1 (x)
-        x = conv1 (x)
-        x = pool1 (x)
-        x = conv2 (x)
-        x = pool2 (x)
-        x = Add()([x, xr])
-        
-        xr = res2 (x)
-        x = conv3 (x)
-        x = pool3 (x)
-        x = conv4 (x)
-        x = pool4 (x)
-        x = Add()([x, xr])
-
-        xr = res3 (x)
-        x = conv5 (x)
-        x = pool5 (x)
-        x = conv6 (x)
-        x = pool6 (x)
-        x = Add()([x, xr])
-
-        x = flatten (x)
-        x = Lambda(lambda t: (K.l2_normalize(t, axis=1)) )(x) 
-        branches.append(x)
-
-    #x = Concatenate() ([branches[0], branches[1]])
-    x = Subtract() ([branches[0], branches[1]])
-    x = Lambda(lambda t: np.square(t) )(x)
-    #x = Lambda(lambda t: (tf.norm(t, axis=1, keepdims=True)) )(x)
-    #x = Dense(256, activation='elu') (x)
-    x = Dropout(0.5) (x)
-    #x = Activation('elu')(x)
-    x = Dense(64, activation='elu') (x)
-    x = Dropout(0.5) (x)
-    x = Dense(2) (x)
-    output = Activation('softmax')(x)
-
-    detect_model = Model(input_vector, output)
-    detect_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-
-    return detect_model
+    return cnn_model
 
 
 def main():
