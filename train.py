@@ -28,11 +28,11 @@ image_height = 64
 image_width = 64
 image_n_channels = 1
 
-n_epochs = 10
-batch_size = 50
+n_epochs = 30
+batch_size = 10
 
 
-RELATION_DETECTION_CNN_MODEL_PATH = "./model/relation_detect_model"
+RELATION_DETECTION_CNN_MODEL_PATH = "./model/blood_related_detect_model"
 
 FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
@@ -94,15 +94,16 @@ def create_relation_dictionaris(X, y, relation_dict):
         X_related_dict[idx1] = []
         X_not_related_dict[idx1] = []
         for idx2 in range(num_indices):
-            if (y[idx2] == y[idx1]) or ((y[idx1][0] in relation_dict) and (y[idx2][0] in relation_dict[y[idx1][0]]) ):
+            if ( (y[idx2] == y[idx1]) and (idx1 != idx2)) or ((y[idx1][0] in relation_dict) and (y[idx2][0] in relation_dict[y[idx1][0]]) ):
                 X_related_dict[idx1].append(idx2)
                 num_related += 1
         for idx2 in range(max(0, idx1-10), num_indices):
-            if (y[idx2] != y[idx1]) and ( (y[idx1][0] not in relation_dict) or (y[idx2][0] not in relation_dict[y[idx1][0]]) ):
+            if ( len(X_not_related_dict[idx1]) == len(X_related_dict[idx1]) ):
+                    break;
+            elif (y[idx2] != y[idx1]) and ( (y[idx1][0] not in relation_dict) or (y[idx2][0] not in relation_dict[y[idx1][0]]) ):
                 X_not_related_dict[idx1].append(idx2)
                 num_not_related += 1
-                if ( len(X_not_related_dict[idx1]) == len(X_related_dict[idx1]) ):
-                    break;
+                
     print("Data size:", num_related, num_not_related)
     
     return X_related_dict, X_not_related_dict
@@ -122,13 +123,14 @@ def data_generator(X, y, data_len, relation_dict, batch_size, data_weight, retur
     X_clf = []
     y_clf = []
     while True:
+        #print("\n rel:", rel,"nrel:", nrel, "\n")        
         for idx1 in range(len(X)):
             for idx2 in X_related_dict[idx1]:
-                weight = num_train_samples * data_weight[idx1, idx2] /2
-                if ( weight < np.random.uniform() ):
-                    continue
+             #   weight = num_train_samples * data_weight[idx1, idx2] /2
+              #  if ( weight < np.random.uniform() ):
+              #      continue
                 X_clf.append([ X[idx1], X[idx2] ] )
-                y_clf.append(1)
+                y_clf.append([1])
                 if ( len(y_clf) == batch_size ):
                     if return_index:
                         yield(np.array(X_clf), np.array(y_clf), idx1, idx2)
@@ -138,11 +140,11 @@ def data_generator(X, y, data_len, relation_dict, batch_size, data_weight, retur
                     y_clf = []
 
             for idx2 in X_not_related_dict[idx1]:
-                weight = num_train_samples * data_weight[idx1, idx2] /2
-                if ( weight < np.random.uniform() ):
-                    continue
+            #    weight = num_train_samples * data_weight[idx1, idx2] /2
+             #   if ( weight < np.random.uniform() ):
+              #      continue
                 X_clf.append([ X[idx1], X[idx2] ] )
-                y_clf.append(0)
+                y_clf.append([0])
                 if ( len(y_clf) == batch_size ):
                     if return_index:
                         yield(np.array(X_clf), np.array(y_clf), idx1, idx2)
@@ -203,7 +205,7 @@ def create_relation_detection_model(num_features):
     x = Dropout(0.5) (x)
     #x = Activation('elu')(x)
     x = Dense(64, activation='elu') (x)
-    x = Dropout(0.5) (x)
+    x = Dropout(0.3) (x)
     x = Dense(2) (x)
     output = Activation('softmax')(x)
 
@@ -220,6 +222,10 @@ def main():
     X_train, X_test = prepare_data(dataset.X_train, dataset.X_test)
     y_train, y_test = dataset.y_train, dataset.y_test
     relation_dict   = dataset.relation_dict
+    X_train = X_train[:num_train_samples]
+    y_train = y_train[:num_train_samples]
+    X_test = X_test[:num_test_samples]
+    y_test = y_test[:num_test_samples]
 
     if os.path.isfile(RELATION_DETECTION_CNN_MODEL_PATH):
         relation_dtection = load_model(RELATION_DETECTION_CNN_MODEL_PATH)
