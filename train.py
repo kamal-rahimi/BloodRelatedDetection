@@ -8,7 +8,7 @@ from tensorflow.python import keras
 from keras import Model
 from keras import backend as K
 from keras.models import load_model, save_model
-from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D, Activation, BatchNormalization, Dropout, Reshape, Flatten, Concatenate, Add, Subtract, Lambda
+from keras.layers import Input, Dense, Conv2D, AveragePooling2D, MaxPooling2D, UpSampling2D, Activation, BatchNormalization, Dropout, Reshape, Flatten, Concatenate, Add, Subtract, Lambda, regularizers
 
 from cvision_tools import detect_face, crop_face, convert_to_gray, resize_with_pad, over_sample, under_sample
 
@@ -28,11 +28,12 @@ image_height = 64
 image_width = 64
 image_n_channels = 1
 
-n_epochs = 30
-batch_size = 10
+n_epochs = 20
+batch_size = 100
 
 
 RELATION_DETECTION_CNN_MODEL_PATH = "./model/blood_related_detect_model"
+RELATION_DETECTION_EMBEDDING_MODEL_PATH = "./model/blood_related_detect_embedding"
 
 FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
@@ -97,7 +98,7 @@ def create_relation_dictionaris(X, y, relation_dict):
             if ( (y[idx2] == y[idx1]) and (idx1 != idx2)) or ((y[idx1][0] in relation_dict) and (y[idx2][0] in relation_dict[y[idx1][0]]) ):
                 X_related_dict[idx1].append(idx2)
                 num_related += 1
-        for idx2 in range(max(0, idx1-10), num_indices):
+        for idx2 in range(max(0, idx1-30), num_indices):
             if ( len(X_not_related_dict[idx1]) == len(X_related_dict[idx1]) ):
                     break;
             elif (y[idx2] != y[idx1]) and ( (y[idx1][0] not in relation_dict) or (y[idx2][0] not in relation_dict[y[idx1][0]]) ):
@@ -153,7 +154,41 @@ def data_generator(X, y, data_len, relation_dict, batch_size, data_weight, retur
                     X_clf = []
                     y_clf = []
 
-def create_relation_detection_model(num_features):
+
+
+def emedding_model():
+    embedding_input = Input(shape=(image_height, image_width, image_n_channels))
+    xr = Conv2D(16,(4,4), strides=(4, 4), activation='elu', padding='same', kernel_regularizer= regularizers.l2(0.01) ) (embedding_input)
+    x = Conv2D(8,(2,2), activation='elu', padding='same', kernel_regularizer= regularizers.l2(0.01)) (embedding_input)
+    x = MaxPooling2D((2,2), padding='same') (x)
+    x = Conv2D(16,(2,2), activation='elu', padding='same', kernel_regularizer= regularizers.l2(0.01)) (x)
+    x = MaxPooling2D((2,2), padding='same') (x)
+    x = Add()([x, xr])
+    
+    xr = Conv2D(64,(4,4), strides=(4, 4), activation='elu') (x)
+    x = Conv2D(32,(2,2), activation='elu', padding='same') (x)
+    x = MaxPooling2D((2,2), padding='same') (x)
+    x = Conv2D(64,(2,2), activation='elu', padding='same') (x)
+    x = MaxPooling2D((2,2), padding='same')(x)
+    x = Add()([x, xr])
+
+    xr = Conv2D(128,(4,4), strides=(4, 4), activation='elu', padding='same') (x)
+    x = Conv2D(96,(2,2), activation='elu', padding='same') (x)
+    x = MaxPooling2D((2,2), padding='same') (x)
+    x = Conv2D(128,(2,2), activation='elu', padding='same') (x)
+    x = MaxPooling2D((2,2), padding='same')(x)
+    x = Add()([x, xr])
+
+    #x = MaxPooling2D() (x)
+    x = Flatten() (x)
+    #x = BatchNormalization(axis=1) (x)
+    embedding_output = Lambda(lambda t: (K.l2_normalize(t, axis=1)) )(x) 
+
+    embedding_model = Model(embedding_input, embedding_output)
+
+    return embedding_model
+
+def create_embedding_model():
     """ Creates a convoluational neural network (CNN) and trains the model to detect facial
      emotion in an input image
     Args:
@@ -161,40 +196,57 @@ def create_relation_detection_model(num_features):
     Returns:
         cnn_model: A Keras convultional neural network
     """
-    input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
+    embedding = emedding_model()
+
+    input_vector = Input(shape=(3, image_height, image_width, image_n_channels))
+    
     branches = []
 
-    res1 = Conv2D(16,(8,8), strides=(8, 8), activation='elu', padding='same')
-    conv1 = Conv2D(8,(4,4), activation='elu', padding='same')
-    pool1 = MaxPooling2D((4,4), padding='same')
-    conv2 = Conv2D(16,(2,2), activation='elu', padding='same')
-    pool2 = MaxPooling2D((2,2), padding='same')
-    res2 = Conv2D(32,(8,8), strides=(8, 8), activation='elu', padding='same')
-    conv3 = Conv2D(24,(4,4), activation='elu', padding='same')
-    pool3 = MaxPooling2D((4,4), padding='same')
-    conv4 = Conv2D(32,(2,2), activation='elu', padding='same')
-    pool4 = MaxPooling2D((2,2), padding='same')
-    flatten = Flatten()
-    #bn = BatchNormalization(axis=1)
+    for i in [0,1,2]:
+        x = Lambda(lambda t: t[:,i])(input_vector)
+        x = Reshape((image_height, image_width, image_n_channels)) (x)
+        x = embedding (x) 
+        branches.append(x)
+
+    #x = Concatenate() ([branches[0], branches[1]])
+    x1 = Subtract() ([branches[0], branches[1]])
+    x1 = Lambda(lambda t: np.square(t) )(x1)
+    x1 = Lambda(lambda t: K.sum(t, axis=1, keepdims=True) )(x1)
+
+    x2 = Subtract() ([branches[0], branches[2]])
+    x2 = Lambda(lambda t: np.square(t) )(x2)
+    x2 = Lambda(lambda t: K.sum(t, axis=1, keepdims=True) )(x2)
+
+    x = Subtract() ([x1, x2])
+    x = Lambda(lambda t: K.sum(t, axis=1, keepdims=True) )(x)
+    output = Lambda(lambda t: K.clip(t, -.6, 10) )(x)
+
+    model = Model(input_vector, output)
+
+    model.compile(optimizer='nadam', loss=embeddingLoss)
+
+    return model, embedding
+
+def embeddingLoss(yTrue, yPred):
+    return K.mean(yPred)
+
+def create_relation_detection_model():
+    """ Creates a convoluational neural network (CNN) and trains the model to detect facial
+     emotion in an input image
+    Args:
+        num_features: Number of input data features
+    Returns:
+        cnn_model: A Keras convultional neural network
+    """
+    
+    input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
+    
+    branches = []
+    embedding = emedding_model()
     for i in [0,1]:
         x = Lambda(lambda t: t[:,i])(input_vector)
         x = Reshape((image_height, image_width, image_n_channels)) (x)
-        xr = res1 (x)
-        x = conv1 (x)
-        x = pool1 (x)
-        x = conv2 (x)
-        x = pool2 (x)
-        x = Add()([x, xr])
-        
-        xr = res2 (x)
-        x = conv3 (x)
-        x = pool3 (x)
-        x = conv4 (x)
-        x = pool4 (x)
-        x = Add()([x, xr])
-
-        x = flatten (x)
-        x = Lambda(lambda t: (K.l2_normalize(t, axis=1)) )(x) 
+        x = embedding (x) 
         branches.append(x)
 
     #x = Concatenate() ([branches[0], branches[1]])
@@ -212,7 +264,7 @@ def create_relation_detection_model(num_features):
     cnn_model = Model(input_vector, output)
     cnn_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
-    return cnn_model
+    return cnn_model, embedding
 
 
 def main():
@@ -231,15 +283,16 @@ def main():
         relation_dtection = load_model(RELATION_DETECTION_CNN_MODEL_PATH)
     else:
         num_features = X_train.shape[1]*2
-        relation_detction = create_relation_detection_model(num_features)
+        relation_detction, embedding = create_relation_detection_model()
         relation_detction.summary()
         data_weights = 1/num_train_samples * np.ones((len(X_train), len(X_train)), np.float32)
         train_data_generator = data_generator(X_train, y_train, num_train_samples, relation_dict, batch_size, data_weights)
         data_weights = 1/num_test_samples * np.ones((len(X_train), len(X_train)), np.float32)
         test_data_generator = data_generator(X_test, y_test, num_train_samples, relation_dict, batch_size, data_weights)
     
-        relation_detction.fit_generator(train_data_generator, validation_data=test_data_generator, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=1)
+        #relation_detction.fit_generator(train_data_generator, validation_data=test_data_generator, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=1)
         relation_detction.save(RELATION_DETECTION_CNN_MODEL_PATH)
+        embedding.save(RELATION_DETECTION_EMBEDDING_MODEL_PATH)
 
     
 

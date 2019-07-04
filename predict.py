@@ -19,6 +19,7 @@ image_width = 64
 image_n_channels = 1
 
 RELATION_DETECTION_CNN_MODEL_PATH = "./model/blood_related_detect_model"
+RELATION_DETECTION_EMBEDDING_MODEL_PATH = "./model/blood_related_detect_embedding"
 
 TEST_DATA_PATH = "./data/test/"
 
@@ -37,10 +38,12 @@ def prepare_image(image):
 
 def indetify_blood_relation(face1, face2):
     relation_detection = load_model(RELATION_DETECTION_CNN_MODEL_PATH)
+    embedding = load_model(RELATION_DETECTION_EMBEDDING_MODEL_PATH)
     print(face1.shape)
     X = [[face1, face2]]
     X = np.array(X)
-    print(X.shape)
+    print(embedding.predict(face1.reshape(1, image_height, image_width, 1)))
+    print(embedding.predict(face2.reshape(1, image_height, image_width, 1)))
     probs = relation_detection.predict(X)[0]
     return probs
 
