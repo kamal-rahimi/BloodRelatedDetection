@@ -32,9 +32,8 @@ image_n_channels = 1
 n_epochs = 20
 batch_size = 10
 
-
-RELATION_DETECTION_CNN_MODEL_PATH = "./model/blood_related_detect_model"
 RELATION_DETECTION_EMBEDDING_MODEL_PATH = "./model/blood_related_detect_embedding"
+RELATION_DETECTION_CNN_MODEL_PATH = "./model/blood_related_detect_model"
 
 FIW_DATA_FILE_PATH = "./data/family_in_wild.pickle"
 
@@ -51,15 +50,14 @@ def read_dataset():
         dataset = pickle.load(open(FIW_DATA_FILE_PATH, 'rb'))
     else:
         dataset = FamilyInWildDataset()
-        dataset.read(image_height=image_height, image_width=image_width)
+        dataset.read(image_height=image_height, image_width=image_width, gray=True)
         dataset.read_relations()
         pickle.dump(dataset, open(FIW_DATA_FILE_PATH, 'wb'))
     return dataset
 
 
 def prepare_data(X_train, X_test):
-    """ Prepares training and test data for family relations detection model from Family in Wild (FIW)
-    image dataset 
+    """ Prepares training and test data for the model from Family in Wild (FIW) image dataset 
     Args:
         X_train: a numpy array of the train image data
         X_test: a numpy array of the test image data
@@ -75,62 +73,46 @@ def prepare_data(X_train, X_test):
     return X_train, X_test
 
 def create_relation_dictionaris(X, y, relation_dict):
-    """ Creates a dictionary containing the ID of images that are blood related to an image ID and
-    a dictionary (with same size) containing the ID of images that are not related the image
+    """ Creates a dictionary containing the ID of images that are blood related to an image ID
     Args:
         X: numpy array of data
         y: numpy array of labels
         relation_dict: a dictionary containing people who are blood related
     Returns:
         X_related_dict: a dictionary containing the ID of images that are blood related to the image
-        X_not_related_dict: a dictionary containing the ID of images that are not related  to the image
     """
     num_indices = len(y)
 
     X_related_dict = {}
-    X_not_related_dict = {}
     num_related = 0
-    num_not_related = 0
-    
     for idx1 in range(num_indices):
         X_related_dict[idx1] = []
-        X_not_related_dict[idx1] = []
         for idx2 in range(num_indices):
             if ( (y[idx2] == y[idx1]) and (idx1 != idx2)) or ((y[idx1][0] in relation_dict) and (y[idx2][0] in relation_dict[y[idx1][0]]) ):
                 X_related_dict[idx1].append(idx2)
                 num_related += 1
-        for idx2 in range(max(0, idx1-30), num_indices):
-            if ( len(X_not_related_dict[idx1]) == len(X_related_dict[idx1]) ):
-                    break;
-            elif (y[idx2] != y[idx1]) and ( (y[idx1][0] not in relation_dict) or (y[idx2][0] not in relation_dict[y[idx1][0]]) ):
-                X_not_related_dict[idx1].append(idx2)
-                num_not_related += 1
                 
-    print("Data size:", num_related, num_not_related)
+    print("Data size:", num_related )
     
-    return X_related_dict, X_not_related_dict
+    return X_related_dict
 
 def data_generator(X, y, data_len, relation_dict, batch_size):
-    """ Creates a datagenrator to feed two images and label (related or not related) to the Keras model
+    """ Creates a datagenrator to feed two images and label (related or not related) to the
+    relation detection model
     Args:
         X: input images
         y: input image lables
         relation_dict: a python dictionary containing relation information
-        data_weight: weights used to sample imput data
         return_index: weather return indices of the two image along with data or not
     Returns:
          yields with numpy arrays contining two pair of images and lable (related, not related)
     """
-    X_related_dict, X_not_related_dict = create_relation_dictionaris(X, y, relation_dict)
+    X_related_dict = create_relation_dictionaris(X, y, relation_dict)
     X_clf = []
     y_clf = []
-    while True:
-        #print("\n rel:", rel,"nrel:", nrel, "\n")        
+    while True:      
         for idx1 in range(len(X)):
             for idx2 in X_related_dict[idx1]:
-             #   weight = num_train_samples * data_weight[idx1, idx2] /2
-              #  if ( weight < np.random.uniform() ):
-              #      continue
                 X_clf.append([ X[idx1], X[idx2] ] )
                 y_clf.append([1])
                 if ( len(y_clf) == batch_size ):
@@ -138,13 +120,12 @@ def data_generator(X, y, data_len, relation_dict, batch_size):
                     X_clf = []
                     y_clf = []
 
-            random_index = list(np.random.randint(len(X), size=20))
-            idx3_in = 0
-
+            random_indecies = list(np.random.randint(len(X), size=20))
+            random_indecies_in = 0
             for i in range(len(X_related_dict[idx1])):
-                while random_index[idx3_in] in X_related_dict[idx1]:
-                    idx3_in += 1
-                idx3 = random_index[idx3_in]
+                while y[random_indecies[random_indecies_in]] == y[idx1]  or random_indecies[random_indecies_in] in X_related_dict[idx1]:
+                    random_indecies_in += 1
+                idx3 = random_indecies[random_indecies_in]
 
                 X_clf.append([ X[idx1], X[idx3] ] )
                 y_clf.append([0])
@@ -154,35 +135,28 @@ def data_generator(X, y, data_len, relation_dict, batch_size):
                     y_clf = []
 
 def embedding_data_generator(X, y, data_len, relation_dict, batch_size):
-    """ Creates a datagenrator to feed two images and label (related or not related) to the Keras model
+    """ Creates a datagenrator to feed three images to train embedding model.
+     first image is the anchor, second image is related to the anchor and third image is
+     unrelated to the anchor image
     Args:
         X: input images
         y: input image lables
         relation_dict: a python dictionary containing relation information
-        data_weight: weights used to sample imput data
-        return_index: weather return indices of the two image along with data or not
     Returns:
-         yields with numpy arrays contining two pair of images and lable (related, not related)
+         yields with numpy arrays contining thjree images
     """
-    X_related_dict, X_not_related_dict = create_relation_dictionaris(X, y, relation_dict)
+    X_related_dict = create_relation_dictionaris(X, y, relation_dict)
     X_clf = []
     y_clf = []
     num_data = 0
-    while True:
-        #print("\n rel:", rel,"nrel:", nrel, "\n")
-        #print("\n num_data:", num_data, "\n")      
+    while True:  
         for idx1 in range(len(X)):
-            random_index = list(np.random.randint(len(X), size=20))
-            #random.shuffle(random_index)
-            #random.shuffle(X_related_dict[idx1])
-            idx3_in = 0
+            random_indecies = list(np.random.randint(len(X), size=20))
+            random_indecies_in = 0
             for idx2 in X_related_dict[idx1]:
-                while random_index[idx3_in] in X_related_dict[idx1]:
-                    idx3_in += 1
-                idx3 = random_index[idx3_in]
-            #for idx2, idx3 in zip(X_related_dict[idx1], X_not_related_dict[idx1]):
-            #for idx2 in X_related_dict[idx1]:
-            #    for idx3 in X_not_related_dict[idx1]:
+                while y[random_indecies[random_indecies_in]] == y[idx1] or random_indecies[random_indecies_in] in X_related_dict[idx1]:
+                    random_indecies_in += 1
+                idx3 = random_indecies[random_indecies_in]
                 X_clf.append([ X[idx1], X[idx2], X[idx3] ] )
                 y_clf.append([-1])
                 num_data += 1
@@ -192,6 +166,12 @@ def embedding_data_generator(X, y, data_len, relation_dict, batch_size):
                     y_clf = []
 
 def emedding_model():
+    """ Creates a convolutional neural network embedding model to extract a feature
+    vector for a face image
+    Args:
+    Returns:
+         embedding_model: A convolutional neural network embedding model
+    """
     embedding_input = Input(shape=(image_height, image_width, image_n_channels))
     xr = Conv2D(16,(4,4), strides=(4, 4), activation='elu', padding='same' ) (embedding_input)
     x = Conv2D(8,(2,2), activation='elu', padding='same') (embedding_input)
@@ -216,22 +196,19 @@ def emedding_model():
 
     #x = MaxPooling2D() (x)
     x = Flatten() (x)
-    #x = BatchNormalization(axis=1) (x)
     embedding_output = Lambda(lambda t: (K.l2_normalize(t, axis=1)) )(x) 
 
     embedding_model = Model(embedding_input, embedding_output)
 
     return embedding_model
 
-def create_embedding_model():
-    """ Creates a convoluational neural network (CNN) and trains the model to detect facial
-     emotion in an input image
+def create_embedding_train_model(embedding):
+    """ Creates a convolutional neural network (CNN) to train the imput embedding model
     Args:
-        num_features: Number of input data features
+        embedding: A Keras convultional neural network model
     Returns:
-        cnn_model: A Keras convultional neural network
+        embedding_train_model: A Keras convolutional neural network model
     """
-    embedding = emedding_model()
 
     input_vector = Input(shape=(3, image_height, image_width, image_n_channels))
     
@@ -254,57 +231,50 @@ def create_embedding_model():
 
     x = Subtract() ([x1, x2])
     x = Lambda(lambda t: K.sum(t, axis=1, keepdims=True) )(x)
-    output = Lambda(lambda t: K.clip(t, -.2, 10) )(x)
+    output = Lambda(lambda t: K.clip(t, -.1, 1) )(x)
 
     model = Model(input_vector, output)
 
-    model.compile(optimizer='nadam', loss=embeddingLoss, metrics=[embeddingLoss2])
+    model.compile(optimizer='nadam', loss=lossMean, metrics=[lossMax])
 
-    return model, embedding
+    return model
 
-def embeddingLoss(yTrue, yPred):
-    #return (K.max(yPred)/ (K.max(yPred) - K.mean(yPred) + .000000001 ))
+def lossMean(yTrue, yPred):
     return K.mean(yPred)
 
-def embeddingLoss2(yTrue, yPred):
+def lossMax(yTrue, yPred):
     return K.max(yPred)
 
 def create_relation_detection_model(embedding):
-    """ Creates a convoluational neural network (CNN) and trains the model to detect facial
-     emotion in an input image
+    """ Creates a convoluational neural network (CNN) using the embedding model
+    and to detect if two images belong to people who are blood related
     Args:
-        num_features: Number of input data features
+        embedding: A Keras convultional neural network model
     Returns:
-        cnn_model: A Keras convultional neural network
+        detection_model: A Keras convultional neural network model
     """
     
     input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
-    
-    for l in embedding.layers: 
-        l.trainable=False
 
     branches = []
-    for i in [0,1]:
+    for i in [0, 1]:
         x = Lambda(lambda t: t[:,i])(input_vector)
         x = Reshape((image_height, image_width, image_n_channels)) (x)
         x = embedding (x) 
         branches.append(x)
 
-    x = Concatenate() ([branches[0], branches[1]])
-    #x = Subtract() ([branches[0], branches[1]])
-    #x = Lambda(lambda t: np.square(t) )(x)
-    #x = Lambda(lambda t: (tf.norm(t, axis=1, keepdims=True)) )(x)
-    x = Dense(256, activation='elu') (x)
-    x = Dropout(0.3) (x)
+    #x = Concatenate() ([branches[0], branches[1]])
+    x = Subtract() ([branches[0], branches[1]])
+    x = Lambda(lambda t: np.square(t) )(x)
     x = Dense(64, activation='elu') (x)
-    x = Dropout(0.3) (x)
+    x = Dropout(0.0) (x)
     x = Dense(2) (x)
     output = Activation('softmax')(x)
 
-    cnn_model = Model(input_vector, output)
-    cnn_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    detection_model = Model(input_vector, output)
+    detection_model.compile(optimizer='nadam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
 
-    return cnn_model
+    return detection_model
 
 
 def main():
@@ -318,19 +288,19 @@ def main():
     y_train = y_train[:num_train_samples]
     X_test = X_test[:num_test_samples]
     y_test = y_test[:num_test_samples]
-    num_features = X_train.shape[1]*2
 
     if os.path.isfile(RELATION_DETECTION_EMBEDDING_MODEL_PATH):
         embedding = load_model(RELATION_DETECTION_EMBEDDING_MODEL_PATH)
     else:
-        model, embedding = create_embedding_model()
-        model.summary()
+        embedding = emedding_model()
         embedding.summary()
+        embedding_train_model = create_embedding_train_model(embedding)
+        embedding_train_model.summary()
+        
         train_data_generator = embedding_data_generator(X_train, y_train, num_train_samples, relation_dict, batch_size)
-        data_weights = 1/num_test_samples * np.ones((len(X_train), len(X_train)), np.float32)
         test_data_generator = embedding_data_generator(X_test, y_test, num_train_samples, relation_dict, batch_size)
 
-        model.fit_generator(train_data_generator, validation_data=test_data_generator, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=1)
+        embedding_train_model.fit_generator(train_data_generator, validation_data=test_data_generator, epochs=n_epochs, steps_per_epoch=num_train_samples/batch_size, validation_steps=num_test_samples/batch_size, verbose=1)
         embedding.save(RELATION_DETECTION_EMBEDDING_MODEL_PATH)
     
     if os.path.isfile(RELATION_DETECTION_CNN_MODEL_PATH):
