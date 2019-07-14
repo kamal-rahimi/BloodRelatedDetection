@@ -211,7 +211,7 @@ def create_embedding_train_model(embedding):
     """
 
     input_vector = Input(shape=(3, image_height, image_width, image_n_channels))
-    
+
     branches = []
 
     for i in [0,1,2]:
@@ -231,7 +231,7 @@ def create_embedding_train_model(embedding):
 
     x = Subtract() ([x1, x2])
     x = Lambda(lambda t: K.sum(t, axis=1, keepdims=True) )(x)
-    output = Lambda(lambda t: K.clip(t, -.1, 1) )(x)
+    output = Lambda(lambda t: K.clip(t, -0.2, 1) )(x)
 
     model = Model(input_vector, output)
 
@@ -256,6 +256,9 @@ def create_relation_detection_model(embedding):
     
     input_vector = Input(shape=(2, image_height, image_width, image_n_channels))
 
+    for l in embedding.layers[:-2]:
+        l.trainable = False
+
     branches = []
     for i in [0, 1]:
         x = Lambda(lambda t: t[:,i])(input_vector)
@@ -266,8 +269,10 @@ def create_relation_detection_model(embedding):
     #x = Concatenate() ([branches[0], branches[1]])
     x = Subtract() ([branches[0], branches[1]])
     x = Lambda(lambda t: np.square(t) )(x)
+    x = Dense(256, activation='elu') (x)
+    x = Dropout(0.5) (x)
     x = Dense(64, activation='elu') (x)
-    x = Dropout(0.0) (x)
+    x = Dropout(0.5) (x)
     x = Dense(2) (x)
     output = Activation('softmax')(x)
 
