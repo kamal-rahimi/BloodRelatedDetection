@@ -9,10 +9,8 @@ https://www.kaggle.com/c/recognizing-faces-in-the-wild/overview
 A Face Embedding model is first created which consists of three block of of convoution-max_poll-convoution-max_poll with a shortcut convolution. Fig. 1 shows the Face Embedding model.
 
 The embedding model is first trained using a triplet loss (Similar to Google FaceNet) to maximize the distance between images that belong to unrelated people and mimiize the distance between images of related people. That is, given tripled training sets of (image_i, related_image_i, unrelated_image_i ) loss function is defined as:
-```
-Loss = SUM_i ( || Embedding( image_i ) - Embedding( related_image_i ) ||^2 - || Embedding( image_i ) - Embedding( unrelated_image_i ) ||^2 + alpha )
-```
-where alpha denotes the enforced margin between positive and negative pairs.
+<img src="https://latex.codecogs.com/svg.latex?\Large&space;loss=\sum_i{[||Embedding(Image_i)-Embedding(RelatedImage_i)||^2-||Embedding(Image_i)-Embedding(UnrelatedImage_i)||^2+\alpha]_+}" title="\Large" />
+where $\alpha$ denotes the enforced margin between positive and negative pairs.
 
 The Embedding model is then used to create the detection model (transfer learning) as depeicted in Fig. 2.
 
