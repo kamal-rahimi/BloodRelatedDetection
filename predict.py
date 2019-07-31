@@ -47,21 +47,6 @@ def indetify_blood_relation(face1, face2):
     probs = relation_detection.predict(X)[0]
     return probs
 
-
-def display_image(image, predicted_label, prob_label, show_face_area=True, wait_time=0, image_out_path=''):
-    image = resize_with_pad(image, 600, 600)
-    if show_face_area:
-        x, y, w, h = detect_face(image)
-        cv2.rectangle(image, (x,y), (x+w,y+h), (0,255,0), 2)
-
-    cv2.putText(image, "{}".format(predicted_label), (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)    
-    cv2.putText(image, "Prob: {:.2f}".format(prob_label), (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 255), 2)
-    cv2.imshow("Image", image)
-    cv2.waitKey(wait_time)
-    print(image_out_path)
-    if image_out_path != '':
-        cv2.imwrite(image_out_path, image)
-
 def predict_images(image1_path, image2_path, image_out_path=''):
     image1 = read_image(image1_path)
     image2 = read_image(image2_path)
@@ -70,7 +55,6 @@ def predict_images(image1_path, image2_path, image_out_path=''):
   
     probs = indetify_blood_relation(face1, face2)
     print(probs)
-    #display_image(image, predicted_emotion, prob_emotion, image_out_path=image_out_path)
 
 
 def main():
@@ -84,13 +68,7 @@ def main():
     
     if (image1_path != "" and image2_path != ""):
         predict_images(image1_path, image2_path)
-""" else:
-        for filename in os.listdir(TEST_DATA_PATH):
-            if os.path.isfile(os.path.join(TEST_DATA_PATH, filename)):
-                image_path = os.path.join(TEST_DATA_PATH, filename)
-                image_out_path = os.path.join( os.path.join(TEST_DATA_PATH, "out/"), filename)
-                predict_image(image_path, image_out_path)
-"""
+
 
 if __name__ == "__main__":
     main()
