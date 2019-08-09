@@ -1,18 +1,18 @@
 # Blood related people detection using Convolutional Neaural Networks (CNN)
 
-The aim of this project is to, given two face images, predict whthere they are blood related or not.
+The aim of this project is to predict whethere two input face images belong to people who are blood related or not.
 This project is based on the following Kaggle competeion:
 https://www.kaggle.com/c/recognizing-faces-in-the-wild/overview
 
 ## Model Description
 
-A Face Embedding model is first created which consists of three block of of convoution-max_poll-convoution-max_poll with a shortcut convolution. Fig. 1 shows the Face Embedding model. The notaion (X, Y x Y, S) denotes that the layer has X filters and uses Y x Y kernel with stride S.
+A Face Embedding model is first created which consists of three block of of convoution-max_poll-convoution-max_poll with a shortcut convolution. Figure 1 shows the Face Embedding model. The notaion (X, Y x Y, S) denotes that the layer has X filters and uses Y x Y kernel with stride S.
 
 The embedding model is first trained using a triplet loss (Similar to Google FaceNet) to maximize the distance between images that belong to unrelated people and mimiize the distance between images of related people. That is, given tripled training sets of (image_i, related_image_i, unrelated_image_i ) loss function is defined as:
 <img src="https://latex.codecogs.com/svg.latex?\Large&space;loss=\sum_i{[||Embedding(Image_i)-Embedding(RelatedImage_i)||^2-||Embedding(Image_i)-Embedding(UnrelatedImage_i)||^2+\alpha]_+}" title="\Large" />
 where $\alpha$ denotes the enforced margin between positive and negative pairs.
 
-The Embedding model is then used to create the detection model (transfer learning) as depeicted in Fig. 2.
+The Embedding model is then used to create the detection model (transfer learning) as depeicted in Figure 2.
 
 
 
@@ -154,7 +154,7 @@ The Embedding model is then used to create the detection model (transfer learnin
 ## How to use the model
 
 ### train.py
-Creats a model and trains it based on the Face-in-Wild image dataset (https://www.kaggle.com/c/recognizing-faces-in-the-wild/data) to detect if two input images belong to blood-related people or not.
+Creates a model and trains it based on the Face-in-Wild image dataset (https://www.kaggle.com/c/recognizing-faces-in-the-wild/data) to detect if two input images belong to blood-related people or not.
 
 Example usage:
 ```
